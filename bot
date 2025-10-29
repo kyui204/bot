@@ -408,6 +408,3 @@ async def user_kick(interaction: Interaction, user: Member):
         return
 
     await interaction.response.send_modal(KickModal(user))
-
-# ✅ Bot起動（トークンは安全に管理してください）
-bot.run("MTQzMjExMzIxMzU3ODkzNjMyMA.GU2zUp.7mw0Dky-H7H7inqFHZTklwy13xF-8ravHyYHw4")
