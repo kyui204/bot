@@ -231,7 +231,6 @@ async def serverinfo(interaction: discord.Interaction):
         if role.name != "@everyone":
             count = len(role.members)
             role_name = role.name[:20].ljust(20)
-
             role_lines.append(f"`{role_name}` | {count}人")
 
     # Embed分割送信（1024文字制限に対応）
@@ -411,4 +410,4 @@ async def user_kick(interaction: Interaction, user: Member):
     await interaction.response.send_modal(KickModal(user))
 
 # ✅ Bot起動（トークンは安全に管理してください）
-bot.run("MTQzMjExMzIxMzU3ODkzNjMyMA.G59zbp.GWJHm2HAVSthxLdaZnIYa2WhzR99mh4NVj2yP4")
+bot.run("MTQzMjExMzIxMzU3ODkzNjMyMA.GU2zUp.7mw0Dky-H7H7inqFHZTklwy13xF-8ravHyYHw4")
