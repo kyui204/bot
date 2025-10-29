@@ -1,0 +1,413 @@
+import discord
+from discord.ext import commands
+from discord import app_commands
+import random
+import string
+
+# 設定
+GUILD_ID = 1338038462837821501
+ROLE_ID = 1412025175976968244
+TICKET_ROLE_ID = 123456789012345678
+TICKET_CATEGORY_ID = 987654321098765432
+
+intents = discord.Intents.all()
+bot = commands.Bot(command_prefix="!", intents=intents)
+
+role_backups = {}
+paypay_links = {}
+reply_dict = {
+    GUILD_ID: {
+        "こんにちは": "やあ！元気？",
+        "助けて": "何か困ってる？コマンドでサポートできるよ！"
+    }
+}
+
+intents = discord.Intents.all()
+bot = commands.Bot(command_prefix="!", intents=intents)
+
+reply_dict = {}
+role_backups = {}
+paypay_links = {}
+
+ROLE_ID = 123456789012345678  # 認証ロールID
+TICKET_ROLE_ID = 123456789012345678  # チケット対応ロールID
+TICKET_CATEGORY_ID = 123456789012345678  # チケット用カテゴリID
+
+@bot.event
+async def on_ready():
+    await bot.tree.sync()
+    bot.add_view(VerifyButtonView())
+    bot.add_view(PersistentBackupView())
+    bot.add_view(TicketView())
+    print(f"✅ ログインを承認しました。: {bot.user}")
+
+@bot.event
+async def on_message(message):
+    if message.author.bot or not message.guild:
+        return
+    guild_id = message.guild.id
+    if guild_id in reply_dict:
+        for keyword, response in reply_dict[guild_id].items():
+            if keyword in message.content:
+                await message.channel.send(response)
+                break
+    await bot.process_commands(message)
+
+class VerifyModal(discord.ui.Modal):
+    def __init__(self, num1, num2):
+        super().__init__(title="認証クイズ")
+        self.num1 = num1
+        self.num2 = num2
+        self.answer_input = discord.ui.TextInput(
+            label=f"{num1} + {num2} = ?", placeholder="答えを入力してね！"
+        )
+        self.add_item(self.answer_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            user_answer = int(self.answer_input.value)
+            correct = self.num1 + self.num2
+            if user_answer == correct:
+                role = interaction.guild.get_role(ROLE_ID)
+                if role:
+                    await interaction.user.add_roles(role)
+                    await interaction.response.send_message("✅ 認証成功！ロールを付与したよ！！")
+                else:
+                    await interaction.response.send_message("⚠️ 認証ロールが見つからないよ！")
+            else:
+                await interaction.response.send_message("❌ 不正解！もう一度試してね！")
+        except ValueError:
+            await interaction.response.send_message("⚠️ 数字で答えてね！")
+
+class VerifyButtonView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="認証する", style=discord.ButtonStyle.success, custom_id="verify_button")
+    async def verify_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+        num1 = random.randint(1, 9)
+        num2 = random.randint(1, 9)
+        await interaction.response.send_modal(VerifyModal(num1, num2))
+
+class PersistentBackupView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="バックアップ", style=discord.ButtonStyle.primary, custom_id="persistent_backup_button")
+    async def backup_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+        roles = [role.id for role in interaction.user.roles if role.name != "@everyone"]
+        code = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
+        role_backups[code] = {
+            "user_id": interaction.user.id,
+            "roles": roles
+        }
+        await interaction.response.send_message(f"✅ ロールをバックアップしたよ！\n復元コード: `{code}`")
+
+class DeleteTicketView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="🗑️ チケットを削除", style=discord.ButtonStyle.red, custom_id="delete_ticket")
+    async def delete_ticket(self, button: discord.ui.Button, interaction: discord.Interaction):
+        has_admin = interaction.user.guild_permissions.administrator
+        has_role = discord.utils.get(interaction.user.roles, id=TICKET_ROLE_ID)
+        if not has_admin and not has_role:
+            await interaction.response.send_message("❌ このチャンネルを削除する権限がありません！")
+            return
+        await interaction.channel.delete()
+
+class TicketView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="🎫 チケットを作成", style=discord.ButtonStyle.green, custom_id="create_ticket")
+    async def create_ticket(self, button: discord.ui.Button, interaction: discord.Interaction):
+        guild = interaction.guild
+        category = discord.utils.get(guild.categories, id=TICKET_CATEGORY_ID)
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True),
+            discord.Object(id=TICKET_ROLE_ID): discord.PermissionOverwrite(view_channel=True, send_messages=True)
+        }
+        channel = await guild.create_text_channel(
+            name=f"ticket-{interaction.user.name}",
+            category=category,
+            overwrites=overwrites
+        )
+        embed = discord.Embed(
+            title="🎫 チケットが作成されました",
+            description=f"{interaction.user.mention} のチケットが作成されました。\n<@&{TICKET_ROLE_ID}> 対応お願いします。",
+            color=discord.Color.orange()
+        )
+        await channel.send(content=f"{interaction.user.mention}", embed=embed, view=DeleteTicketView())
+        await interaction.response.send_message(f"✅ チケットを作成しました！ → {channel.mention}")
+
+@bot.tree.command(name="say", description="Botに好きな言葉を言わせる")
+@app_commands.describe(message="Botに言わせたい言葉")
+async def say(interaction: discord.Interaction, message: str):
+    await interaction.response.send_message(message)
+
+@bot.tree.command(name="role_backup", description="ロールをバックアップします")
+async def backup(interaction: discord.Interaction):
+    await interaction.response.send_message("ロールをバックアップするには以下のボタンを押してください：", view=PersistentBackupView())
+
+@bot.tree.command(name="role_restore", description="ロールを復元します")
+@app_commands.describe(code="復元コード")
+async def restore(interaction: discord.Interaction, code: str):
+    data = role_backups.get(code)
+    if not data:
+        await interaction.response.send_message("❌ 無効なコードだよ！")
+        return
+    target_user = interaction.guild.get_member(data["user_id"])
+    if not target_user:
+        await interaction.response.send_message("❌ 対象ユーザーが見つからなかったよ！")
+        return
+    roles_to_add = [discord.utils.get(interaction.guild.roles, id=rid) for rid in data["roles"]]
+    roles_to_add = [r for r in roles_to_add if r]
+    await target_user.edit(roles=roles_to_add)
+    await interaction.response.send_message(f"✅ {target_user.mention} にロールを復元したよ！")
+
+@bot.tree.command(name="user_ban", description="指定したユーザーをBANします")
+@app_commands.describe(member="BANするユーザー", reason="BANの理由")
+async def ban(interaction: discord.Interaction, member: discord.Member, reason: str = "理由なし"):
+    if not interaction.user.guild_permissions.ban_members:
+        await interaction.response.send_message("❌ 権限がありません！")
+        return
+    await member.ban(reason=reason)
+    await interaction.response.send_message(f"{member.mention} をBANしました。理由: {reason}")
+
+@bot.tree.command(name="paypay_set", description="自分のPayPayリンクを登録します")
+@app_commands.describe(link="登録するPayPayリンク")
+async def setpaypay(interaction: discord.Interaction, link: str):
+    if not (link.startswith("https://paypay.ne.jp/") or link.startswith("https://qr.paypay.ne.jp/")):
+        await interaction.response.send_message("❌ 有効なPayPayリンクを入力してね！")
+        return
+    paypay_links[interaction.user.id] = link
+    await interaction.response.send_message("✅ PayPayリンクを登録したよ！")
+
+@bot.tree.command(name="paypay_lick", description="登録済みのPayPayリンクを送信します")
+async def paypay(interaction: discord.Interaction):
+    link = paypay_links.get(interaction.user.id)
+    if not link:
+        await interaction.response.send_message("❌ まだPayPayリンクが登録されていないよ！先に `/setpaypay` を使って登録してね！")
+        return
+    embed = discord.Embed(
+        title="📲 PayPay送金リンク",
+        description="以下のリンクから送金できます。",
+        color=0x00c3ff
+    )
+    embed.add_field(name="リンク", value=f"[こちらをクリック]({link})", inline=False)
+    embed.set_footer(text="安全な送金を心がけましょう！")
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="server_info", description="このサーバーの詳細情報を表示します")
+async def serverinfo(interaction: discord.Interaction):
+    guild = interaction.guild
+    text_channels = guild.text_channels
+    voice_channels = guild.voice_channels
+    categories = guild.categories
+    humans = len([m for m in guild.members if not m.bot])
+    bots = len([m for m in guild.members if m.bot])
+
+    # メインのEmbed
+    embed = discord.Embed(
+        title=f"📊 サーバー情報: {guild.name}",
+        color=discord.Color.blue()
+    )
+    embed.add_field(name="🆔 サーバーID", value=str(guild.id), inline=True)
+    embed.add_field(name="👑 オーナー", value=guild.owner.mention, inline=True)
+    embed.add_field(name="👥 メンバー数", value=f"人間: {humans}\nBot: {bots}", inline=False)
+    embed.add_field(name="📁 カテゴリー数", value=str(len(categories)), inline=True)
+    embed.add_field(name="💬 テキストチャンネル", value=str(len(text_channels)), inline=True)
+    embed.add_field(name="🔊 ボイスチャンネル", value=str(len(voice_channels)), inline=True)
+    embed.add_field(name="🚀 ブースト", value=f"レベル {guild.premium_tier}（{guild.premium_subscription_count} 回）", inline=True)
+    embed.add_field(name="📅 作成日", value=guild.created_at.strftime("%Y/%m/%d %H:%M"), inline=True)
+
+    await interaction.response.send_message(embed=embed)
+
+    # ロール一覧（@everyone を除外）
+    role_lines = []
+    for role in guild.roles:
+        if role.name != "@everyone":
+            count = len(role.members)
+            role_name = role.name[:20].ljust(20)
+            role_lines.append(f"`{role_name}` | {count}人")
+
+    # Embed分割送信（1024文字制限に対応）
+    chunk = ""
+    embeds = []
+    for line in role_lines:
+        if len(chunk) + len(line) + 1 > 1024:
+            embeds.append(discord.Embed(
+                title="🎭 ロール一覧（続き）",
+                description=chunk,
+                color=discord.Color.green()
+            ))
+            chunk = ""
+        chunk += line + "\n"
+
+    if chunk:
+        embeds.append(discord.Embed(
+            title="🎭 ロール一覧（続き）",
+            description=chunk,
+            color=discord.Color.green()
+        ))
+
+    for e in embeds:
+        await interaction.followup.send(embed=e)
+
+
+@bot.tree.command(name="channel_delete", description="このチャンネルを削除します")
+async def delete_channel(interaction: discord.Interaction):
+    if interaction.user.guild_permissions.manage_channels:
+        await interaction.response.send_message("このチャンネルを削除します。")
+        await interaction.channel.delete()
+    else:
+        await interaction.response.send_message("チャンネルを削除する権限がありません。")
+
+@bot.tree.command(name="ticket_panel", description="チケット作成パネルを表示します")
+async def ticket_panel(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="🎫 チケット作成",
+        description="問題や質問がある場合は、以下のボタンを押してチケットを作成してください。",
+        color=discord.Color.blue()
+    )
+    await interaction.response.send_message(embed=embed, view=TicketView())
+
+@bot.tree.command(name="bot_info", description="このボットの詳細情報を表示します")
+async def botinfo(interaction: discord.Interaction):
+    server_count = len(bot.guilds)
+    permissions = interaction.guild.me.guild_permissions
+
+    # 権限テキスト
+    perm_text = ""
+    important_perms = [
+        ("管理者", permissions.administrator),
+        ("メッセージの管理", permissions.manage_messages),
+        ("チャンネルの管理", permissions.manage_channels),
+        ("ロールの管理", permissions.manage_roles),
+        ("Webhookの使用", permissions.manage_webhooks),
+        ("絵文字の管理", permissions.manage_emojis_and_stickers),
+        ("メッセージの送信", permissions.send_messages),
+        ("ファイルの添付", permissions.attach_files),
+        ("埋め込みリンク", permissions.embed_links),
+    ]
+    for name, value in important_perms:
+        perm_text += f"{name}: {'✅' if value else '❌'}\n"
+
+    # コマンド一覧
+    commands = bot.tree.get_commands()
+    command_list = "\n".join([f"/{cmd.name} - {cmd.description}" for cmd in commands])
+    if len(command_list) > 1024:
+        command_list = command_list[:1020] + "..."
+
+    embed = discord.Embed(
+        title="🤖 ボット情報",
+        color=discord.Color.purple()
+    )
+    embed.add_field(name="🌐 参加サーバー数", value=f"{server_count} サーバー", inline=True)
+    embed.add_field(name="🔐 権限一覧", value=perm_text, inline=False)
+    embed.add_field(name="📚 使用可能なコマンド", value=command_list or "なし", inline=False)
+
+    await interaction.response.send_message(embed=embed)
+
+@bot.event
+async def on_member_join(member):
+    if member.bot:
+        await member.kick(reason="Botの参加は禁止されています")
+
+from discord import app_commands, Interaction, ui
+import discord
+
+class ClearModal(ui.Modal, title="🧹 メッセージ削除"):
+    count = ui.TextInput(
+        label="削除するメッセージ数（最大100）",
+        placeholder="例: 10",
+        max_length=3
+    )
+
+    async def on_submit(self, interaction: Interaction):
+        try:
+            num = int(self.count.value)
+            if num < 1 or num > 100:
+                await interaction.response.send_message("⚠️ 1〜100の範囲で入力してください。", ephemeral=True)
+                return
+
+            # 権限チェック（オプション）
+            if not interaction.guild.me.guild_permissions.manage_messages:
+                await interaction.response.send_message("⚠️ Botにメッセージ管理権限がありません。", ephemeral=True)
+                return
+
+            deleted = await interaction.channel.purge(limit=num)
+            await interaction.response.send_message(f"✅ {len(deleted)} 件のメッセージを削除しました。", ephemeral=True)
+
+        except ValueError:
+            await interaction.response.send_message("⚠️ 数字を入力してください。", ephemeral=True)
+
+@bot.tree.command(name="clear", description="指定した件数のメッセージを削除します（最大100件）")
+async def clear(interaction: Interaction):
+    await interaction.response.send_modal(ClearModal())
+
+from discord import app_commands, Interaction, Member, ui
+import discord
+
+class KickModal(ui.Modal, title="👢 ユーザーをキック"):
+    reason = ui.TextInput(
+        label="キックの理由（サーバーに記録されます）",
+        placeholder="例: ルール違反のため",
+        required=True,
+        max_length=200
+    )
+    dm_message = ui.TextInput(
+        label="DMで送るメッセージ（任意）",
+        placeholder="例: サーバーのルール違反によりキックされました。",
+        required=False,
+        max_length=500,
+        style=discord.TextStyle.paragraph
+    )
+
+    def __init__(self, target: Member):
+        super().__init__()
+        self.target = target
+
+    async def on_submit(self, interaction: Interaction):
+        try:
+            # DM送信（失敗しても無視）
+            if self.dm_message.value:
+                try:
+                    await self.target.send(self.dm_message.value)
+                except:
+                    pass
+
+            # キック実行
+            await self.target.kick(reason=self.reason.value)
+            await interaction.response.send_message(
+                f"✅ {self.target.mention} をキックしました。\n理由: {self.reason.value}",
+                ephemeral=True
+            )
+        except Exception as e:
+            await interaction.response.send_message(
+                f"⚠️ キックに失敗しました: {e}",
+                ephemeral=True
+            )
+
+@bot.tree.command(name="user_kick", description="指定したユーザーをキックします")
+@app_commands.describe(user="キックするユーザー")
+async def user_kick(interaction: Interaction, user: Member):
+    # 自分自身やBotをキックしないようにチェック
+    if user == interaction.user:
+        await interaction.response.send_message("⚠️ 自分自身はキックできません。", ephemeral=True)
+        return
+    if user == interaction.guild.me:
+        await interaction.response.send_message("⚠️ Bot自身はキックできません。", ephemeral=True)
+        return
+
+    # 権限チェック（オプション）
+    if not interaction.user.guild_permissions.kick_members:
+        await interaction.response.send_message("⚠️ あなたにはキック権限がありません。", ephemeral=True)
+        return
+
+    await interaction.response.send_modal(KickModal(user))
+
+# ✅ Bot起動（トークンは安全に管理してください）
+bot.run("MTQzMjExMzIxMzU3ODkzNjMyMA.G59zbp.GWJHm2HAVSthxLdaZnIYa2WhzR99mh4NVj2yP4")
